@@ -6,6 +6,8 @@ name: CI/CD with Github Action
 on:
   push:
     branches: [ master ]
+    tags:
+      - '*'
   pull_request:
     branches: [ master ]
 
@@ -51,6 +53,9 @@ jobs:
     name: Assemble
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      jar_name: ${{ steps.step_get_jar_name.outputs.jar_name }}
+      artifact_jar_name: ${{ steps.step_get_artifact_jar_name.outputs.jar_name }}
     steps:
     - uses: actions/checkout@v2
     - name: Grant execute permission for gradlew
@@ -59,8 +64,46 @@ jobs:
       run: |
         ./gradlew jar
         ./gradlew assemble
+    - id: step_get_jar_name
+      run: echo "::set-output name=jar_name::$(find ./build/libs -name '*.jar' -exec basename {} \;)"
+    - id: step_get_artifact_jar_name
+      run: echo "::set-output name=jar_name::buildJar"
     - name: Storing workflow assemble jar file
       uses: actions/upload-artifact@v2
       with:
-        name: buildJar
+        name: ${{ steps.step_get_artifact_jar_name.outputs.jar_name }}
         path: build/libs/
+
+  # testname:
+  #   name: Testname
+  #   needs: assemble
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - name: Print jar name
+  #     run: echo ${{needs.assemble.outputs.jar_name}}
+
+  release:
+    name: Release
+    if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+    needs: assemble
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Get release name
+        id: getReleaseName
+        run: echo ::set-output name=RELEASE_NAME::${GITHUB_REF/refs\/tags\//}
+      - name: Download jar file
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{needs.assemble.outputs.artifact_jar_name}}
+      # - name: Display
+      #   run: "ls -la"
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          # tag_name: ${{ steps.getReleaseName.outputs.RELEASE_NAME }}
+          name: ${{ steps.getReleaseName.outputs.RELEASE_NAME }}
+          files: ${{needs.assemble.outputs.jar_name}}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
